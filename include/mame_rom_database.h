@@ -33,7 +33,7 @@ extern "C" {
 #define MRDB_MACHINE_ROMS_COUNT 408997
 #define MRDB_MANUFACTURERS_COUNT 4233
 #define MRDB_ROM_NAMES_COUNT    161642
-#define MRDB_TOTAL_SIZE         13715381
+#define MRDB_TOTAL_SIZE         13157773
 
 // ============================================================================
 // Data structures
@@ -75,20 +75,20 @@ typedef struct __attribute__((packed)) {
     uint8_t name_id[3];       // 24-bit ID into rom_names table
 } MrdbRom;
 
-// Machine entry (20 bytes)
+// Machine entry (17 bytes)
 typedef struct __attribute__((packed)) {
     uint32_t name_offset;     // Offset into strings pool
     uint32_t desc_offset;     // Offset into descriptions pool
-    uint16_t desc_length;     // Compressed description length
-    uint8_t cloneof_id[3];    // 24-bit machine ID or 0xFFFFFF
-    uint8_t romof_id[3];      // 24-bit machine ID or 0xFFFFFF
+    uint8_t desc_length;      // Compressed description length
+    uint16_t cloneof_id;      // 16-bit machine ID or 0xFFFF
+    uint16_t romof_id;        // 16-bit machine ID or 0xFFFF
     uint16_t year;            // Release year (16-bit)
     uint16_t manufacturer_id; // 16-bit ID or 0xFFFF
 } MrdbMachine;
 
-// Machine-ROM mapping entry (9 bytes)
+// Machine-ROM mapping entry (8 bytes)
 typedef struct __attribute__((packed)) {
-    uint8_t machine_id[3];    // 24-bit machine ID
+    uint16_t machine_id;      // 16-bit machine ID
     uint8_t rom_id[3];        // 24-bit ROM ID (size_pow2 << 16 | index)
     uint8_t name_id[3];       // 24-bit ROM name ID in this machine
 } MrdbMachineRom;
@@ -229,7 +229,7 @@ static inline uint32_t mrdb_get_rom_id(const uint8_t* db, const MrdbRom* rom) {
 // Machine lookup functions
 // ============================================================================
 
-#define MRDB_MACHINE_ROM_ENTRY_SIZE 9  // machine_id(3) + rom_id(3) + name_id(3)
+#define MRDB_MACHINE_ROM_ENTRY_SIZE 8  // machine_id(2) + rom_id(3) + name_id(3)
 
 /**
  * Result structure for machine lookup.
@@ -273,25 +273,25 @@ uint32_t mrdb_get_machine_description(const uint8_t* db, uint32_t machine_id,
 /**
  * Get machine cloneof ID.
  */
-static inline uint32_t mrdb_get_machine_cloneof(const uint8_t* db, uint32_t machine_id) {
+static inline uint16_t mrdb_get_machine_cloneof(const uint8_t* db, uint32_t machine_id) {
     const MrdbHeader* hdr = mrdb_get_header(db);
     if (machine_id >= hdr->machines_count) {
-        return MRDB_NULL_ID_24;
+        return MRDB_NULL_ID_16;
     }
     const MrdbMachine* machine = &mrdb_get_machines(db)[machine_id];
-    return MRDB_READ_UINT24(machine->cloneof_id);
+    return machine->cloneof_id;
 }
 
 /**
  * Get machine romof ID.
  */
-static inline uint32_t mrdb_get_machine_romof(const uint8_t* db, uint32_t machine_id) {
+static inline uint16_t mrdb_get_machine_romof(const uint8_t* db, uint32_t machine_id) {
     const MrdbHeader* hdr = mrdb_get_header(db);
     if (machine_id >= hdr->machines_count) {
-        return MRDB_NULL_ID_24;
+        return MRDB_NULL_ID_16;
     }
     const MrdbMachine* machine = &mrdb_get_machines(db)[machine_id];
-    return MRDB_READ_UINT24(machine->romof_id);
+    return machine->romof_id;
 }
 
 /**

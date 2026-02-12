@@ -7,10 +7,12 @@ file for embedding in the arcade_rom_pro firmware.
 
 ID sizes:
 - roms: 24 bits (8-bit size_pow2 + 16-bit index, SHA1 sorted)
-- machine_roms: 24 bits
+- machine_roms: 24 bits (rom_id, name_id), 16 bits (machine_id)
 - rom_names: 24 bits
 - manufacturers: 16 bits
-- machines: 24 bits
+- machines: 16 bits
+- cloneof_id / romof_id: 16 bits
+- desc_length: 8 bits
 - year: 16 bits
 
 Binary file structure:
@@ -297,8 +299,8 @@ def remap_ids(data, min_size_pow2, max_size_pow2):
         old_romof = m['romof_id']
         old_manuf = m['manufacturer_id']
 
-        m['cloneof_id'] = machine_id_map.get(old_cloneof, NULL_ID_24) if old_cloneof else NULL_ID_24
-        m['romof_id'] = machine_id_map.get(old_romof, NULL_ID_24) if old_romof else NULL_ID_24
+        m['cloneof_id'] = machine_id_map.get(old_cloneof, NULL_ID_16) if old_cloneof else NULL_ID_16
+        m['romof_id'] = machine_id_map.get(old_romof, NULL_ID_16) if old_romof else NULL_ID_16
         m['manufacturer_id'] = manufacturer_id_map.get(old_manuf, NULL_ID_16) if old_manuf else NULL_ID_16
 
     # Update references in roms
@@ -380,6 +382,10 @@ def generate_binary(data, strings_pool, string_offsets, desc_pool, desc_info,
     """Generate the complete binary file."""
     print("Generating binary data...")
 
+    # Validate 16-bit limits for machine IDs
+    if len(data['machines']) > 0xFFFF:
+        raise ValueError(f"Machine count {len(data['machines'])} exceeds 16-bit limit (65535)")
+
     # Calculate sizes
     num_sizes = max_size_pow2 - min_size_pow2 + 1
     size_index_size = num_sizes * 8  # 4 bytes start_offset + 4 bytes end_offset per size
@@ -393,12 +399,12 @@ def generate_binary(data, strings_pool, string_offsets, desc_pool, desc_info,
     # ROM entry: sha1(20) + name_id(3) = 23 bytes
     roms_size = roms_count * 23
 
-    # Machine entry: name_offset(4) + desc_offset(4) + desc_len(2) +
-    #                cloneof_id(3) + romof_id(3) + year(2) + manufacturer_id(2) = 20 bytes
-    machines_size = machines_count * 20
+    # Machine entry: name_offset(4) + desc_offset(4) + desc_len(1) +
+    #                cloneof_id(2) + romof_id(2) + year(2) + manufacturer_id(2) = 17 bytes
+    machines_size = machines_count * 17
 
-    # Machine-ROM entry: machine_id(3) + rom_id(3) + name_id(3) = 9 bytes
-    machine_roms_size = machine_roms_count * 9
+    # Machine-ROM entry: machine_id(2) + rom_id(3) + name_id(3) = 8 bytes
+    machine_roms_size = machine_roms_count * 8
 
     # Manufacturer entry: name_offset(4) = 4 bytes
     manufacturers_size = manufacturers_count * 4
@@ -478,17 +484,26 @@ def generate_binary(data, strings_pool, string_offsets, desc_pool, desc_info,
         name_off = string_offsets.get(m['name'], 0)
         d_off, d_len = desc_info.get(new_id, (0, 0))
 
+        if d_len > 255:
+            raise ValueError(f"Machine {new_id} ({m['name']}): desc_length {d_len} exceeds 8-bit limit (255)")
+        if m['cloneof_id'] != NULL_ID_16 and m['cloneof_id'] > 0xFFFF:
+            raise ValueError(f"Machine {new_id}: cloneof_id {m['cloneof_id']} exceeds 16-bit limit")
+        if m['romof_id'] != NULL_ID_16 and m['romof_id'] > 0xFFFF:
+            raise ValueError(f"Machine {new_id}: romof_id {m['romof_id']} exceeds 16-bit limit")
+
         output.extend(struct.pack('<I', name_off))
         output.extend(struct.pack('<I', d_off))
-        output.extend(struct.pack('<H', d_len))
-        output.extend(write_uint24(m['cloneof_id']))
-        output.extend(write_uint24(m['romof_id']))
+        output.extend(struct.pack('<B', d_len))
+        output.extend(struct.pack('<H', m['cloneof_id'] & 0xFFFF))
+        output.extend(struct.pack('<H', m['romof_id'] & 0xFFFF))
         output.extend(struct.pack('<H', m['year'] & 0xFFFF))
         output.extend(struct.pack('<H', m['manufacturer_id'] & 0xFFFF))
 
     # Machine-ROMs table (sorted by rom_id)
     for mr in data['machine_roms']:
-        output.extend(write_uint24(mr['machine_id']))
+        if mr['machine_id'] > 0xFFFF:
+            raise ValueError(f"machine_id {mr['machine_id']} exceeds 16-bit limit in machine_roms")
+        output.extend(struct.pack('<H', mr['machine_id'] & 0xFFFF))
         output.extend(write_uint24(mr['rom_id']))
         output.extend(write_uint24(mr['name_id']))
 
@@ -598,20 +613,20 @@ typedef struct __attribute__((packed)) {{
     uint8_t name_id[3];       // 24-bit ID into rom_names table
 }} MrdbRom;
 
-// Machine entry (20 bytes)
+// Machine entry (17 bytes)
 typedef struct __attribute__((packed)) {{
     uint32_t name_offset;     // Offset into strings pool
     uint32_t desc_offset;     // Offset into descriptions pool
-    uint16_t desc_length;     // Compressed description length
-    uint8_t cloneof_id[3];    // 24-bit machine ID or 0xFFFFFF
-    uint8_t romof_id[3];      // 24-bit machine ID or 0xFFFFFF
+    uint8_t desc_length;      // Compressed description length
+    uint16_t cloneof_id;      // 16-bit machine ID or 0xFFFF
+    uint16_t romof_id;        // 16-bit machine ID or 0xFFFF
     uint16_t year;            // Release year (16-bit)
     uint16_t manufacturer_id; // 16-bit ID or 0xFFFF
 }} MrdbMachine;
 
-// Machine-ROM mapping entry (9 bytes)
+// Machine-ROM mapping entry (8 bytes)
 typedef struct __attribute__((packed)) {{
-    uint8_t machine_id[3];    // 24-bit machine ID
+    uint16_t machine_id;      // 16-bit machine ID
     uint8_t rom_id[3];        // 24-bit ROM ID (size_pow2 << 16 | index)
     uint8_t name_id[3];       // 24-bit ROM name ID in this machine
 }} MrdbMachineRom;
@@ -752,7 +767,7 @@ static inline uint32_t mrdb_get_rom_id(const uint8_t* db, const MrdbRom* rom) {{
 // Machine lookup functions
 // ============================================================================
 
-#define MRDB_MACHINE_ROM_ENTRY_SIZE 9  // machine_id(3) + rom_id(3) + name_id(3)
+#define MRDB_MACHINE_ROM_ENTRY_SIZE 8  // machine_id(2) + rom_id(3) + name_id(3)
 
 /**
  * Result structure for machine lookup.
@@ -796,25 +811,25 @@ uint32_t mrdb_get_machine_description(const uint8_t* db, uint32_t machine_id,
 /**
  * Get machine cloneof ID.
  */
-static inline uint32_t mrdb_get_machine_cloneof(const uint8_t* db, uint32_t machine_id) {{
+static inline uint16_t mrdb_get_machine_cloneof(const uint8_t* db, uint32_t machine_id) {{
     const MrdbHeader* hdr = mrdb_get_header(db);
     if (machine_id >= hdr->machines_count) {{
-        return MRDB_NULL_ID_24;
+        return MRDB_NULL_ID_16;
     }}
     const MrdbMachine* machine = &mrdb_get_machines(db)[machine_id];
-    return MRDB_READ_UINT24(machine->cloneof_id);
+    return machine->cloneof_id;
 }}
 
 /**
  * Get machine romof ID.
  */
-static inline uint32_t mrdb_get_machine_romof(const uint8_t* db, uint32_t machine_id) {{
+static inline uint16_t mrdb_get_machine_romof(const uint8_t* db, uint32_t machine_id) {{
     const MrdbHeader* hdr = mrdb_get_header(db);
     if (machine_id >= hdr->machines_count) {{
-        return MRDB_NULL_ID_24;
+        return MRDB_NULL_ID_16;
     }}
     const MrdbMachine* machine = &mrdb_get_machines(db)[machine_id];
-    return MRDB_READ_UINT24(machine->romof_id);
+    return machine->romof_id;
 }}
 
 /**
@@ -948,7 +963,7 @@ const MrdbRom* mrdb_find_rom_by_sha1(const uint8_t* db, uint8_t size_pow2, const
 // Machine lookup functions
 // ============================================================================
 
-#define MRDB_MACHINE_ROM_ENTRY_SIZE 9  // machine_id(3) + rom_id(3) + name_id(3)
+#define MRDB_MACHINE_ROM_ENTRY_SIZE 8  // machine_id(2) + rom_id(3) + name_id(3)
 
 /**
  * Find first machine-ROM mapping entry for a given ROM ID.
@@ -969,7 +984,7 @@ static const MrdbMachineRom* mrdb_find_first_machine_rom(const uint8_t* db, uint
     while (left < right) {
         uint32_t mid = left + (right - left) / 2;
         const uint8_t* entry = base + mid * MRDB_MACHINE_ROM_ENTRY_SIZE;
-        uint32_t mid_rom_id = MRDB_READ_UINT24(entry + 3);
+        uint32_t mid_rom_id = MRDB_READ_UINT24(entry + 2);
 
         if (mid_rom_id >= rom_id) {
             if (mid_rom_id == rom_id) {
@@ -1023,14 +1038,14 @@ uint32_t mrdb_get_machines_for_rom(const uint8_t* db, const MrdbRom* rom,
 
     uint32_t count = 0;
     while (ptr < end) {
-        uint32_t entry_rom_id = MRDB_READ_UINT24(ptr + 3);
+        uint32_t entry_rom_id = MRDB_READ_UINT24(ptr + 2);
         if (entry_rom_id != rom_id) {
             break;
         }
 
         if (count < max_results && results) {
-            results[count].machine_id = MRDB_READ_UINT24(ptr);
-            results[count].rom_name_id = MRDB_READ_UINT24(ptr + 6);
+            results[count].machine_id = (uint32_t)(ptr[0] | (ptr[1] << 8));
+            results[count].rom_name_id = MRDB_READ_UINT24(ptr + 5);
         }
         count++;
         ptr += MRDB_MACHINE_ROM_ENTRY_SIZE;
@@ -1107,7 +1122,7 @@ uint32_t mrdb_get_machine_description(const uint8_t* db, uint32_t machine_id,
 
     // Get compressed data (zlib format: 2-byte header + deflate data + 4-byte checksum)
     const uint8_t* compressed = mrdb_get_description(db, machine->desc_offset);
-    uint16_t comp_len = machine->desc_length;
+    uint8_t comp_len = machine->desc_length;
 
     // Skip zlib header (2 bytes) and checksum (4 bytes)
     if (comp_len <= 6) {

@@ -72,14 +72,14 @@ Offset  Size    Description
 0x38    4       descriptions pool offset
 ```
 
-### Size index table (6 bytes per size)
+### Size index table (8 bytes per size)
 
 For each `size_pow2` from 11 to 23 (13 entries):
 
 | Field | Size | Description |
 |-------|------|-------------|
-| `start_index` | 3 bytes | Start index in ROMs table |
-| `count` | 3 bytes | Number of ROMs of this size |
+| `start_offset` | 4 bytes | Byte offset to first ROM of this size (relative to roms_offset) |
+| `end_offset` | 4 bytes | Byte offset past last ROM of this size (relative to roms_offset) |
 
 This table enables fast lookup: knowing a ROM's size, you can directly access the corresponding ROM range.
 
@@ -92,25 +92,25 @@ Sorted by `size_pow2` then by `SHA1` (ascending order).
 | `sha1` | 20 bytes | Binary SHA1 hash |
 | `name_id` | 3 bytes | 24-bit ID into rom_names |
 
-### Machines table (20 bytes per entry)
+### Machines table (17 bytes per entry)
 
 | Field | Size | Description |
 |-------|------|-------------|
 | `name_offset` | 4 bytes | Offset into strings pool |
 | `desc_offset` | 4 bytes | Offset into descriptions pool |
-| `desc_length` | 2 bytes | Compressed description length |
-| `cloneof_id` | 3 bytes | 24-bit parent machine ID (0xFFFFFF = NULL) |
-| `romof_id` | 3 bytes | 24-bit ROM source machine ID (0xFFFFFF = NULL) |
+| `desc_length` | 1 byte | Compressed description length |
+| `cloneof_id` | 2 bytes | 16-bit parent machine ID (0xFFFF = NULL) |
+| `romof_id` | 2 bytes | 16-bit ROM source machine ID (0xFFFF = NULL) |
 | `year` | 2 bytes | Release year |
 | `manufacturer_id` | 2 bytes | 16-bit manufacturer ID (0xFFFF = NULL) |
 
-### Machine-ROMs table (9 bytes per entry)
+### Machine-ROMs table (8 bytes per entry)
 
 Sorted by `rom_id` to enable binary search.
 
 | Field | Size | Description |
 |-------|------|-------------|
-| `machine_id` | 3 bytes | 24-bit machine ID |
+| `machine_id` | 2 bytes | 16-bit machine ID |
 | `rom_id` | 3 bytes | 24-bit ROM ID |
 | `name_id` | 3 bytes | 24-bit ROM name ID in this machine |
 
@@ -155,8 +155,9 @@ This structure enables:
 
 | Table | ID Size | NULL Value |
 |-------|---------|------------|
-| machines | 24 bits | 0xFFFFFF |
-| machine_roms | 24 bits | 0xFFFFFF |
+| machines | 16 bits | 0xFFFF |
+| machine_roms (machine_id) | 16 bits | 0xFFFF |
+| machine_roms (rom_id, name_id) | 24 bits | 0xFFFFFF |
 | rom_names | 24 bits | 0xFFFFFF |
 | manufacturers | 16 bits | 0xFFFF |
 
@@ -202,12 +203,12 @@ For a complete MAME database:
 | Machine-ROMs | ~410,000 |
 | Manufacturers | ~4,200 |
 | ROM names | ~162,000 |
-| **Total size** | **~12.8 MB** |
+| **Total size** | **~12.5 MB** |
 
 ## Raspberry Pi Pico 2 constraints
 
 - Total flash: 16 MB
-- Database: ~12.8 MB
-- Available for firmware: ~3.2 MB
+- Database: ~12.5 MB
+- Available for firmware: ~3.5 MB
 
 The database fits comfortably in flash, leaving enough space for firmware code.

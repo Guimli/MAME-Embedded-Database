@@ -4,7 +4,7 @@ Optimized binary database for MAME arcade ROM identification, designed to be emb
 
 ## Overview
 
-This project transforms official MAME DAT files into a compact database (~13 MB) directly embedded in a C binary. The pipeline has 3 steps:
+This project transforms official MAME DAT files into a compact database (~12.5 MB) directly embedded in a C binary. The pipeline has 3 steps:
 
 ```
 MAME DAT files
@@ -133,4 +133,4 @@ The API is defined in `include/mame_rom_database.h`. Main functions:
 | ROMs | 157,561 |
 | Machines | 49,537 |
 | Manufacturers | 4,233 |
-| Embedded database size | ~13 MB |
+| Embedded database size | ~12.5 MB |
